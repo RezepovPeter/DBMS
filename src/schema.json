@@ -1,0 +1,8 @@
+{
+  "name": "Students",
+  "tuples_limit": 1000,
+  "structure": {
+    "table1": ["Name", "Surname", "Age"],
+    "table2": ["Subject", "Grade", "Semestr"]
+  }
+}
