@@ -5,7 +5,7 @@ pub struct MyHashMap<K, V> {
     size: usize,
 }
 
-impl<K: AsRef<[u8]> + Clone, V: Clone> MyHashMap<K, V> {
+impl<K: AsRef<[u8]> + Clone + Eq, V: Clone> MyHashMap<K, V> {
     pub fn new() -> Self {
         MyHashMap {
             buckets: {
@@ -33,49 +33,73 @@ impl<K: AsRef<[u8]> + Clone, V: Clone> MyHashMap<K, V> {
     }
 
     fn rehash(&mut self) {
-        let mut old_buckets = MyVec::new();
-        for element in self.buckets.iter() {
-            if element.is_some() {
-                old_buckets.push(element.clone());
-            }
-        }
+        let old_buckets = std::mem::replace(&mut self.buckets, MyVec::new());
 
-        self.size *= 2;
+        // Увеличиваем размер в 2 раза
+        let new_size = old_buckets.len() * 2;
         self.buckets = MyVec::new();
-
-        for _ in 0..self.size {
+        for _ in 0..new_size {
             self.buckets.push(None);
         }
+        self.size = 0; // Сбрасываем размер до 0, затем добавляем все элементы
 
         for opt in old_buckets.iter() {
             if let Some((key, value)) = opt {
-                self.insert(key.clone(), value.clone());
+                self.insert(key.clone(), value.clone()); // Вставляем элементы в новую хеш-таблицу
             }
         }
     }
 
     pub fn insert(&mut self, key: K, value: V) {
-        let index = self.hash(&key) % self.size;
-
-        while self.buckets[index].is_some() {
-            self.rehash();
+        const LOAD_FACTOR: f64 = 0.75;
+        if (self.size as f64) >= (self.buckets.len() as f64) * LOAD_FACTOR {
+            self.rehash(); // Рехешируем при достижении порога
         }
 
+        let mut index = self.hash(&key) % self.buckets.len();
+
+        // Линейное пробирование для нахождения свободного места
+        while self.buckets[index].is_some() {
+            if let Some((ref k, _)) = self.buckets[index] {
+                if k == &key {
+                    // Если ключ уже существует, обновляем значение
+                    self.buckets[index] = Some((key, value));
+                    return;
+                }
+            }
+            index = (index + 1) % self.buckets.len();
+        }
+
+        // Вставляем новый элемент
         self.buckets[index] = Some((key, value));
+        self.size += 1; // Увеличиваем размер
     }
 
     pub fn get(&self, key: &K) -> Option<&V> {
-        let index = self.hash(&key) % self.size;
-        self.buckets[index].as_ref().map(|(_, v)| v)
+        let mut index = self.hash(key) % self.buckets.len(); // Используем количество ведер
+
+        while let Some((ref k, ref v)) = self.buckets[index] {
+            if k == key {
+                return Some(v); // Возвращаем ссылку на значение
+            }
+            index = (index + 1) % self.buckets.len(); // Линейное пробирование
+        }
+
+        None // Если не нашли ключ
     }
 
     pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
-        let index = self.hash(key) % self.size;
-        if let Some((_, ref mut value)) = self.buckets[index] {
-            Some(value)
-        } else {
-            None
+        let mut index = self.hash(key) % self.buckets.len();
+
+        while let Some((ref k, _)) = self.buckets[index] {
+            if k == key {
+                // Здесь важно создать временную ссылку отдельно
+                return self.buckets[index].as_mut().map(|(_, v)| v);
+            }
+            index = (index + 1) % self.buckets.len();
         }
+
+        None
     }
 
     pub fn iter(&self) -> MyHashMapIter<K, V> {
@@ -94,7 +118,7 @@ impl<K: AsRef<[u8]> + Clone, V: Clone> MyHashMap<K, V> {
     }
 }
 
-impl<K: AsRef<[u8]> + Clone, V: Clone> Clone for MyHashMap<K, V> {
+impl<K: AsRef<[u8]> + Clone + Eq, V: Clone> Clone for MyHashMap<K, V> {
     fn clone(&self) -> Self {
         let mut new_map = MyHashMap::new();
         for bucket in self.buckets.iter() {
