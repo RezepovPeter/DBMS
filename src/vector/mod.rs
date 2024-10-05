@@ -99,19 +99,18 @@ impl<T> Index<RangeFrom<usize>> for MyVec<T> {
     }
 }
 
-impl<T: Clone> MyVec<T> {
-    pub fn clone(&self) -> MyVec<T> {
+impl<T: Clone> Clone for MyVec<T> {
+    fn clone(&self) -> MyVec<T> {
         let mut new_vec = MyVec::new();
         for i in 0..self.size {
             unsafe {
-                let item = ptr::read(self.data.add(i)); // Copy the element
-                new_vec.push(item.clone()); // Clone the element and add it to the new vector
+                let item = ptr::read(self.data.add(i)); // Копируем элемент
+                new_vec.push(item.clone()); // Клонируем элемент и добавляем его в новый вектор
             }
         }
         new_vec
     }
 }
-
 impl<T> Index<Range<usize>> for MyVec<T> {
     type Output = [T]; // Specify that the returned type is a slice
 

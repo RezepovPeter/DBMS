@@ -1,6 +1,6 @@
 use crate::Schema;
 use crate::MyVec;
-use std::collections::HashMap;
+use crate::hash_map::MyHashMap;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{ BufRead, Write, BufReader };
@@ -94,7 +94,7 @@ pub fn parse_delete(querry: String, schema: &Schema) {
             for line in lines {
                 let line = line.unwrap();
                 let line: MyVec<&str> = line.split(",").collect();
-                let mut data_for_condition: HashMap<String, String> = HashMap::new();
+                let mut data_for_condition: MyHashMap<String, String> = MyHashMap::new();
                 for (field, value) in head.iter().zip(line.iter()) {
                     data_for_condition.insert(format!("{}.{}", table, field), value.to_string());
                 }
@@ -153,7 +153,7 @@ fn parse_condition(condition: &str) -> Option<Condition> {
     None
 }
 
-fn eval_conditions(conditions: &MyVec<MyVec<Condition>>, data: &HashMap<String, String>) -> bool {
+fn eval_conditions(conditions: &MyVec<MyVec<Condition>>, data: &MyHashMap<String, String>) -> bool {
     for and_group in conditions.iter() {
         let mut group_result = true;
         for condition in and_group.iter() {
@@ -203,7 +203,7 @@ pub fn parse_select(querry: String, schema: &Schema) {
         .map(|table| table.trim())
         .collect();
 
-    let mut table_columns: HashMap<String, MyVec<String>> = HashMap::new();
+    let mut table_columns: MyHashMap<String, MyVec<String>> = MyHashMap::new();
 
     // Iterate over each column and split it into table and column name
     for table in tables.iter() {
@@ -229,12 +229,12 @@ pub fn parse_select(querry: String, schema: &Schema) {
 
 fn execute_select(
     tables: MyVec<String>,
-    table_columns: HashMap<String, MyVec<String>>,
+    table_columns: MyHashMap<String, MyVec<String>>,
     schema: &Schema,
     conditions: Option<MyVec<MyVec<Condition>>>
 ) {
     // Read all data for each table
-    let mut table_data: MyVec<MyVec<HashMap<String, String>>> = MyVec::new();
+    let mut table_data: MyVec<MyVec<MyHashMap<String, String>>> = MyVec::new();
     for table in tables.iter() {
         let data = read_all_table_data(table, schema); // Use the new function
         table_data.push(data);
@@ -265,7 +265,7 @@ fn execute_select(
     // Select and print the needed columns
     for row in filtered_data.iter() {
         let mut selected_row = MyVec::new();
-        for (table, cols) in &table_columns {
+        for (table, cols) in table_columns.iter() {
             for col in cols.iter() {
                 let key = format!("{}.{}", table, col); // Form key: table1.Surname
                 if let Some(value) = row.get(&key) {
@@ -277,7 +277,7 @@ fn execute_select(
     }
 }
 
-fn read_all_table_data(table_name: &str, schema: &Schema) -> MyVec<HashMap<String, String>> {
+fn read_all_table_data(table_name: &str, schema: &Schema) -> MyVec<MyHashMap<String, String>> {
     let mut all_data = MyVec::new();
     let mut file_index = 1;
 
@@ -299,7 +299,7 @@ fn read_all_table_data(table_name: &str, schema: &Schema) -> MyVec<HashMap<Strin
                 for line in lines {
                     let line = line.unwrap();
                     let values: MyVec<&str> = line.split(',').collect();
-                    let mut row = HashMap::new();
+                    let mut row = MyHashMap::new();
                     for (header, value) in headers.iter().zip(values.iter()) {
                         row.insert(format!("{}.{}", table_name, header), value.to_string());
                     }
@@ -320,9 +320,9 @@ fn read_all_table_data(table_name: &str, schema: &Schema) -> MyVec<HashMap<Strin
 
 // Function to perform Cartesian product of rows from two tables
 fn cartesian_product(
-    table1: &MyVec<HashMap<String, String>>,
-    table2: &MyVec<HashMap<String, String>>
-) -> MyVec<HashMap<String, String>> {
+    table1: &MyVec<MyHashMap<String, String>>,
+    table2: &MyVec<MyHashMap<String, String>>
+) -> MyVec<MyHashMap<String, String>> {
     let mut result = MyVec::new();
 
     for row1 in table1.iter() {

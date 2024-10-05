@@ -57,7 +57,7 @@ impl<K: AsRef<[u8]> + Clone, V: Clone> MyHashMap<K, V> {
     pub fn insert(&mut self, key: K, value: V) {
         let index = self.hash(&key) % self.size;
 
-        if self.buckets[index].is_some() {
+        while self.buckets[index].is_some() {
             self.rehash();
         }
 
@@ -68,4 +68,64 @@ impl<K: AsRef<[u8]> + Clone, V: Clone> MyHashMap<K, V> {
         let index = self.hash(&key) % self.size;
         self.buckets[index].as_ref().map(|(_, v)| v)
     }
+
+    pub fn get_mut(&mut self, key: &K) -> Option<&mut V> {
+        let index = self.hash(key) % self.size;
+        if let Some((_, ref mut value)) = self.buckets[index] {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn iter(&self) -> MyHashMapIter<K, V> {
+        MyHashMapIter {
+            map: self,
+            index: 0,
+        }
+    }
+
+    pub fn extend(&mut self, other: MyHashMap<K, V>) {
+        for bucket in other.buckets.iter() {
+            if let Some((key, value)) = bucket {
+                self.insert(key.clone(), value.clone());
+            }
+        }
+    }
+}
+
+impl<K: AsRef<[u8]> + Clone, V: Clone> Clone for MyHashMap<K, V> {
+    fn clone(&self) -> Self {
+        let mut new_map = MyHashMap::new();
+        for bucket in self.buckets.iter() {
+            if let Some((key, value)) = bucket {
+                new_map.insert(key.clone(), value.clone());
+            }
+        }
+        new_map
+    }
+}
+
+pub struct MyHashMapIter<'a, K, V> {
+    map: &'a MyHashMap<K, V>,
+    index: usize,
+}
+
+impl<'a, K, V> Iterator for MyHashMapIter<'a, K, V> {
+    type Item = (&'a K, &'a V);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        while self.index < self.map.buckets.len() {
+            if let Some((ref key, ref value)) = self.map.buckets[self.index] {
+                self.index += 1;
+                return Some((key, value));
+            }
+            self.index += 1; // Переходим к следующему ведру
+        }
+        None
+    }
+}
+
+impl<K, V> Drop for MyHashMap<K, V> {
+    fn drop(&mut self) {}
 }

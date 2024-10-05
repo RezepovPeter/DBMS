@@ -5,7 +5,6 @@ mod db_api;
 
 use db_api::{ execute_query, init_db, clear_csv_files };
 use vector::MyVec;
-use hash_map::MyHashMap;
 use std::{ collections::HashMap, io };
 use std::fs;
 use std::io::BufReader;
@@ -41,17 +40,13 @@ fn main() {
         }
     }
 
-    let mut test: MyHashMap<String, String> = MyHashMap::new();
-    test.insert(String::from("Prekol"), String::from("aboba"));
-    println!("{}", test.get(&String::from("Prekol")).unwrap());
-
     init_db(&schema);
 
     // User input
     loop {
         let mut query = String::new();
         io::stdin().read_line(&mut query).expect("Failed to read a query from console");
-        if query.trim() == "clear db" {
+        if query.trim() == "CLEAR DB" {
             clear_csv_files(&schema);
         } else {
             execute_query(query, &schema);
