@@ -1,9 +1,11 @@
 mod querry_parser;
 mod vector;
+mod hash_map;
 mod db_api;
 
 use db_api::{ execute_query, init_db, clear_csv_files };
 use vector::MyVec;
+use hash_map::MyHashMap;
 use std::{ collections::HashMap, io };
 use std::fs;
 use std::io::BufReader;
@@ -38,6 +40,10 @@ fn main() {
             std::process::exit(1);
         }
     }
+
+    let mut test: MyHashMap<String, String> = MyHashMap::new();
+    test.insert(String::from("Prekol"), String::from("aboba"));
+    println!("{}", test.get(&String::from("Prekol")).unwrap());
 
     init_db(&schema);
 
