@@ -1,6 +1,7 @@
 use crate::Schema;
 use crate::MyVec;
 use crate::hash_map::MyHashMap;
+use crate::db_api::{ lock_table, unlock_table, increment_pk_sequence };
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{ BufRead, Write, BufReader };
@@ -10,34 +11,41 @@ struct Condition {
     value: String,
 }
 
-pub fn parse_insert(input: String, schema: &Schema) {
+pub fn parse_insert(input: String, schema: &Schema, is_locked: &mut bool) {
     let parts: MyVec<&str> = input.split_whitespace().collect();
     let table = parts[2];
 
-    if let Some(values_index) = parts.iter().position(|&x| x == "VALUES") {
-        let values_part = &parts[values_index + 1..].join(" "); // Combine remaining parts
-        let values = values_part.trim_start_matches('(').trim_end_matches(')').trim(); // Remove parentheses
-        let values_list: MyVec<&str> = values.split("), (").collect(); // Split by comma and parentheses
+    if !*is_locked {
+        if let Some(values_index) = parts.iter().position(|&x| x == "VALUES") {
+            let values_part = &parts[values_index + 1..].join(" "); // Combine remaining parts
+            let values = values_part.trim_start_matches('(').trim_end_matches(')').trim(); // Remove parentheses
+            let values_list: MyVec<&str> = values.split("), (").collect(); // Split by comma and parentheses
+            lock_table(is_locked, String::from(table), schema);
 
-        // Write each record to CSV
-        for value in values_list.iter() {
-            let cleaned_value = value
-                .replace("'", "")
-                .replace("(", "")
-                .replace(")", "")
-                .replace(" ", ""); // Remove extra characters
+            // Write each record to CSV
+            for value in values_list.iter() {
+                let cleaned_value = value
+                    .replace("'", "")
+                    .replace("(", "")
+                    .replace(")", "")
+                    .replace(" ", ""); // Remove extra characters
 
-            let not_full_csv_index = find_not_full_csv(schema, table);
-            let path = format!("{}/{}/{}.csv", schema.name, table, not_full_csv_index);
-            let mut not_full_csv = OpenOptions::new()
-                .write(true)
-                .append(true)
-                .open(&path)
-                .expect("failed to open CSV file for writing");
-            writeln!(not_full_csv, "{}", cleaned_value).expect("failed to write data to CSV");
+                let not_full_csv_index = find_not_full_csv(schema, table);
+                let path = format!("{}/{}/{}.csv", schema.name, table, not_full_csv_index);
+
+                let mut not_full_csv = OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(&path)
+                    .expect("failed to open CSV file for writing");
+
+                increment_pk_sequence(schema.name.as_str(), table);
+                writeln!(not_full_csv, "{}", cleaned_value).expect("failed to write data to CSV");
+                unlock_table(is_locked, String::from(table), schema);
+            }
+        } else {
+            println!("'VALUES' not found");
         }
-    } else {
-        println!("'VALUES' not found");
     }
 }
 
@@ -71,51 +79,58 @@ fn find_not_full_csv(schema: &Schema, table: &str) -> i32 {
     }
 }
 
-pub fn parse_delete(querry: String, schema: &Schema) {
+pub fn parse_delete(querry: String, schema: &Schema, is_locked: &mut bool) {
     let parts: MyVec<&str> = querry.split(" ").collect();
     let table = parts[2];
-    if let Some(head) = schema.structure.get(table) {
-        let parsed_conditions = parse_where(&querry).unwrap();
-        let mut file_index = 0;
-        loop {
-            file_index += 1;
-            let mut remaining_lines: MyVec<String> = MyVec::new();
-            remaining_lines.push(head.join(",")); // Add header to remaining lines
-            let path = format!("{}/{}/{}.csv", schema.name, table, file_index);
-            let mut table_file = match OpenOptions::new().read(true).open(&path) {
-                Ok(file) => file,
-                Err(_) => {
-                    break;
-                } // Break the loop if the file is not found
-            };
-            let reader = BufReader::new(table_file);
-            let mut lines = reader.lines();
-            lines.next();
-            for line in lines {
-                let line = line.unwrap();
-                let line: MyVec<&str> = line.split(",").collect();
-                let mut data_for_condition: MyHashMap<String, String> = MyHashMap::new();
-                for (field, value) in head.iter().zip(line.iter()) {
-                    data_for_condition.insert(format!("{}.{}", table, field), value.to_string());
+    if !*is_locked {
+        if let Some(head) = schema.structure.get(table) {
+            let parsed_conditions = parse_where(&querry).unwrap();
+            let mut file_index = 0;
+            lock_table(is_locked, String::from(table), schema);
+            loop {
+                file_index += 1;
+                let mut remaining_lines: MyVec<String> = MyVec::new();
+                remaining_lines.push(head.join(",")); // Add header to remaining lines
+                let path = format!("{}/{}/{}.csv", schema.name, table, file_index);
+                let mut table_file = match OpenOptions::new().read(true).open(&path) {
+                    Ok(file) => file,
+                    Err(_) => {
+                        break;
+                    } // Break the loop if the file is not found
+                };
+                let reader = BufReader::new(table_file);
+                let mut lines = reader.lines();
+                lines.next();
+                for line in lines {
+                    let line = line.unwrap();
+                    let line: MyVec<&str> = line.split(",").collect();
+                    let mut data_for_condition: MyHashMap<String, String> = MyHashMap::new();
+                    for (field, value) in head.iter().zip(line.iter()) {
+                        data_for_condition.insert(
+                            format!("{}.{}", table, field),
+                            value.to_string()
+                        );
+                    }
+                    if !eval_conditions(&parsed_conditions, &data_for_condition) {
+                        remaining_lines.push(line.join(",")); // Save the line if it is not deleted
+                    }
                 }
-                if !eval_conditions(&parsed_conditions, &data_for_condition) {
-                    remaining_lines.push(line.join(",")); // Save the line if it is not deleted
-                }
-            }
-            table_file = OpenOptions::new()
-                .write(true)
-                .truncate(true) // Clear the file
-                .open(&path)
-                .expect("Failed to open file for truncation");
+                table_file = OpenOptions::new()
+                    .write(true)
+                    .truncate(true) // Clear the file
+                    .open(&path)
+                    .expect("Failed to open file for truncation");
 
-            // Write remaining lines
-            for line in remaining_lines.iter() {
-                writeln!(table_file, "{}", line).expect("Failed to write line");
+                // Write remaining lines
+                for line in remaining_lines.iter() {
+                    writeln!(table_file, "{}", line).expect("Failed to write line");
+                }
+                unlock_table(is_locked, String::from(table), schema);
             }
+        } else {
+            println!("No such table in DB");
+            return;
         }
-    } else {
-        println!("No such table in DB");
-        return;
     }
 }
 

@@ -29,6 +29,7 @@ fn read_schema(path: &str) -> serde_json::Result<Schema> {
 #[allow(dead_code)]
 fn main() {
     let schema: Schema;
+    let mut is_locked = false;
     match read_schema("src/schema.json") {
         Ok(output) => {
             schema = output;
@@ -48,7 +49,7 @@ fn main() {
         if query.trim() == "CLEAR DB" {
             clear_csv_files(&schema);
         } else {
-            execute_query(query, &schema);
+            execute_query(query, &schema, &mut is_locked);
         }
     }
 }

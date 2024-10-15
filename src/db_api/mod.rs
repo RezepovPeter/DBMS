@@ -1,15 +1,15 @@
-use std::fmt::format;
-use std::io::Write;
+use std::io::{ Read, Write };
+use std::fs::OpenOptions;
 use std::path::Path;
 use crate::querry_parser::{ parse_insert, parse_delete, parse_select };
 use crate::Schema;
 use std::fs;
 
-pub fn execute_query(query: String, schema: &Schema) {
+pub fn execute_query(query: String, schema: &Schema, is_locked: &mut bool) {
     if query.starts_with("INSERT INTO") {
-        parse_insert(query, &schema);
+        parse_insert(query, &schema, is_locked);
     } else if query.starts_with("DELETE FROM") {
-        parse_delete(query, &schema);
+        parse_delete(query, &schema, is_locked);
     } else if query.starts_with("SELECT") {
         parse_select(query, &schema);
     } else {
@@ -32,9 +32,11 @@ pub fn init_db(schema: &Schema) {
         let data_path = format!("{}/{}", &table_path, "1.csv");
         let block_path = format!("{}/{}_pk", &table_path, table_name);
         let block_path_sequence = format!("{}/{}_pk_sequence", &table_path, table_name);
+        let lock_path = format!("{}/{}_lock", &table_path, table_name);
         let data_path = Path::new(data_path.as_str());
         let block_path = Path::new(block_path.as_str());
         let block_path_sequence = Path::new(block_path_sequence.as_str());
+        let lock_path = Path::new(lock_path.as_str());
         if !data_path.exists() {
             let mut file = fs::File::create(data_path).expect("failed to create csv file");
             // Update CSV files
@@ -43,11 +45,20 @@ pub fn init_db(schema: &Schema) {
         }
         if !block_path.exists() {
             let mut file = fs::File::create(block_path).expect("failed to create block file");
+            writeln!(file, "0").unwrap();
         }
         if !block_path_sequence.exists() {
             let mut file = fs::File
                 ::create(block_path_sequence)
                 .expect("failed to create block_sequence file");
+            writeln!(file, "0").unwrap();
+        }
+        if !lock_path.exists() {
+            let mut file = fs::File
+                ::create(lock_path)
+                .expect("failed to create block_sequence file");
+
+            writeln!(file, "0").expect("Failed to write to file");
         }
     }
 }
@@ -66,5 +77,63 @@ pub fn clear_csv_files(schema: &Schema) {
                 fs::remove_file(file_path).expect("Failed to remove file");
             }
         }
+    }
+}
+
+pub fn lock_table(is_locked: &mut bool, table_name: String, schema: &Schema) {
+    let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
+    let lock_path = Path::new(lock_path.as_str());
+    *is_locked = true;
+    if !lock_path.exists() {
+        let mut file = fs::File::create(lock_path).expect("failed to create block_sequence file");
+
+        writeln!(file, "1").expect("Failed to write to file");
+    }
+}
+
+pub fn unlock_table(is_locked: &mut bool, table_name: String, schema: &Schema) {
+    let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
+    let lock_path = Path::new(lock_path.as_str());
+    *is_locked = false;
+    if !lock_path.exists() {
+        let mut file = fs::File::create(lock_path).expect("failed to create block_sequence file");
+
+        writeln!(file, "0").expect("Failed to write to file");
+    }
+}
+
+pub fn increment_pk_sequence(schema_name: &str, table_name: &str) {
+    let sequence_path = format!("{}/{}/{}_pk_sequence", schema_name, table_name, table_name);
+    let sequence = Path::new(&sequence_path);
+
+    // Если файл последовательности существует, увеличиваем значение
+    if sequence.exists() {
+        // Открываем файл для чтения
+        let mut file = fs::File::open(&sequence).expect("Failed to open pk_sequence file");
+
+        // Читаем текущее значение
+        let mut content = String::new();
+        file.read_to_string(&mut content).expect("Failed to read pk_sequence file");
+
+        // Преобразуем строку в число и увеличиваем на 1
+        let current_value: u64 = content
+            .trim()
+            .parse()
+            .expect("Invalid number in pk_sequence file");
+        let new_value = current_value + 1;
+
+        // Открываем файл для записи и перезаписываем новое значение
+        let mut file = OpenOptions::new()
+            .write(true)
+            .truncate(true) // Удаляем старое содержимое файла
+            .open(&sequence)
+            .expect("Failed to open pk_sequence file for writing");
+
+        // Записываем новое значение
+        writeln!(file, "{}", new_value).expect("Failed to write new pk_sequence value to file");
+    } else {
+        // Если файла нет, создаем его и записываем значение 1
+        let mut file = fs::File::create(&sequence).expect("Failed to create pk_sequence file");
+        writeln!(file, "1").expect("Failed to write to new pk_sequence file");
     }
 }
