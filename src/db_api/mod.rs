@@ -1,3 +1,4 @@
+use std::fmt::format;
 use std::io::Write;
 use std::path::Path;
 use crate::querry_parser::{ parse_insert, parse_delete, parse_select };
@@ -29,12 +30,24 @@ pub fn init_db(schema: &Schema) {
 
         // Create CSV files
         let data_path = format!("{}/{}", &table_path, "1.csv");
+        let block_path = format!("{}/{}_pk", &table_path, table_name);
+        let block_path_sequence = format!("{}/{}_pk_sequence", &table_path, table_name);
         let data_path = Path::new(data_path.as_str());
+        let block_path = Path::new(block_path.as_str());
+        let block_path_sequence = Path::new(block_path_sequence.as_str());
         if !data_path.exists() {
             let mut file = fs::File::create(data_path).expect("failed to create csv file");
             // Update CSV files
             let header = columns.join(",");
             writeln!(file, "{}", header).expect("failed to make header of csv file");
+        }
+        if !block_path.exists() {
+            let mut file = fs::File::create(block_path).expect("failed to create block file");
+        }
+        if !block_path_sequence.exists() {
+            let mut file = fs::File
+                ::create(block_path_sequence)
+                .expect("failed to create block_sequence file");
         }
     }
 }

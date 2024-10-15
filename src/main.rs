@@ -26,7 +26,6 @@ fn read_schema(path: &str) -> serde_json::Result<Schema> {
     Ok(schema)
 }
 
-// Function to clear all CSV files except 1.csv
 #[allow(dead_code)]
 fn main() {
     let schema: Schema;
