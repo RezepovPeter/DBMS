@@ -2,34 +2,19 @@ mod querry_parser;
 mod vector;
 mod hash_map;
 mod db_api;
+mod structs;
+mod utils;
 
+use structs::{ Schema, Condition };
 use db_api::{ execute_query, init_db, clear_csv_files };
 use vector::MyVec;
-use std::{ collections::HashMap, io };
-use std::fs;
-use std::io::BufReader;
-use serde::{ Deserialize, Serialize };
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Schema {
-    name: String,
-    tuples_limit: i32,
-    structure: HashMap<String, Vec<String>>,
-}
-
-fn read_schema(path: &str) -> serde_json::Result<Schema> {
-    let file = fs::File::open(path).expect("cannot open schema.json file");
-    let reader = BufReader::new(file);
-
-    let schema: Schema = serde_json::from_reader(reader).expect("cannot parse json into structure");
-
-    Ok(schema)
-}
+use hash_map::MyHashMap;
+use std::io;
+use utils::read_schema;
 
 #[allow(dead_code)]
 fn main() {
     let schema: Schema;
-    let mut is_locked = false;
     match read_schema("src/schema.json") {
         Ok(output) => {
             schema = output;
@@ -49,7 +34,7 @@ fn main() {
         if query.trim() == "CLEAR DB" {
             clear_csv_files(&schema);
         } else {
-            execute_query(query, &schema, &mut is_locked);
+            execute_query(query, &schema);
         }
     }
 }
