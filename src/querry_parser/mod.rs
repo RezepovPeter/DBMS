@@ -90,56 +90,58 @@ fn execute_select(
     conditions: Option<MyVec<MyVec<Condition>>>,
     schema: &Schema
 ) {
-    let mut table_columns: MyHashMap<String, MyVec<String>> = MyHashMap::new();
+    if !is_locked(tables[0], schema) && !is_locked(tables[1], schema) {
+        let mut table_columns: MyHashMap<String, MyVec<String>> = MyHashMap::new();
 
-    for table in tables.iter() {
-        table_columns.insert(table.to_string(), MyVec::new());
-    }
-    for column in columns.iter() {
-        if let Some((table, column_name)) = column.split_once(".") {
-            if let Some(columns_vector) = table_columns.get_mut(&table.to_string()) {
-                columns_vector.push(column_name.to_string());
-            }
+        for table in tables.iter() {
+            table_columns.insert(table.to_string(), MyVec::new());
         }
-    }
-
-    let tables: MyVec<String> = tables
-        .iter()
-        .map(|&s| s.to_string())
-        .collect();
-    let mut table_data: MyVec<MyVec<MyHashMap<String, String>>> = MyVec::new();
-
-    for table in tables.iter() {
-        let data = read_all_table_data(table, schema);
-        table_data.push(data);
-    }
-
-    let mut joined_data = table_data[0].clone();
-    for i in 1..table_data.len() {
-        joined_data = cartesian_product(&joined_data, &table_data[i]);
-    }
-
-    let filtered_data = if let Some(conds) = conditions {
-        joined_data
-            .iter()
-            .cloned()
-            .filter(|row| execute_conditions(&conds, row))
-            .collect()
-    } else {
-        joined_data
-    };
-
-    for row in filtered_data.iter() {
-        let mut selected_row = MyVec::new();
-        for (table, cols) in table_columns.iter() {
-            for col in cols.iter() {
-                let key = format!("{}.{}", table, col);
-                if let Some(value) = row.get(&key) {
-                    selected_row.push(value.as_str());
+        for column in columns.iter() {
+            if let Some((table, column_name)) = column.split_once(".") {
+                if let Some(columns_vector) = table_columns.get_mut(&table.to_string()) {
+                    columns_vector.push(column_name.to_string());
                 }
             }
         }
-        println!("{}", selected_row.join(", "));
+
+        let tables: MyVec<String> = tables
+            .iter()
+            .map(|&s| s.to_string())
+            .collect();
+        let mut table_data: MyVec<MyVec<MyHashMap<String, String>>> = MyVec::new();
+
+        for table in tables.iter() {
+            let data = read_all_table_data(table, schema);
+            table_data.push(data);
+        }
+
+        let mut joined_data = table_data[0].clone();
+        for i in 1..table_data.len() {
+            joined_data = cartesian_product(&joined_data, &table_data[i]);
+        }
+
+        let filtered_data = if let Some(conds) = conditions {
+            joined_data
+                .iter()
+                .cloned()
+                .filter(|row| execute_conditions(&conds, row))
+                .collect()
+        } else {
+            joined_data
+        };
+
+        for row in filtered_data.iter() {
+            let mut selected_row = MyVec::new();
+            for (table, cols) in table_columns.iter() {
+                for col in cols.iter() {
+                    let key = format!("{}.{}", table, col);
+                    if let Some(value) = row.get(&key) {
+                        selected_row.push(value.as_str());
+                    }
+                }
+            }
+            println!("{}", selected_row.join(", "));
+        }
     }
 }
 

@@ -5,15 +5,17 @@ mod db_api;
 mod structs;
 mod utils;
 
+use tokio::net::TcpListener;
+#[allow(unused_imports)]
+use tokio::io::{ AsyncReadExt, AsyncWriteExt };
 use structs::{ Schema, Condition };
 use db_api::{ execute_query, init_db, clear_csv_files };
 use vector::MyVec;
 use hash_map::MyHashMap;
-use std::io;
 use utils::read_schema;
 
-#[allow(dead_code)]
-fn main() {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
     let schema: Schema;
     match read_schema("src/schema.json") {
         Ok(output) => {
@@ -27,14 +29,39 @@ fn main() {
 
     init_db(&schema);
 
-    // User input
+    let listener = TcpListener::bind("127.0.0.1:1337").await?;
+
     loop {
-        let mut query = String::new();
-        io::stdin().read_line(&mut query).expect("Failed to read a query from console");
-        if query.trim() == "CLEAR DB" {
-            clear_csv_files(&schema);
-        } else {
-            execute_query(query, &schema);
-        }
+        let (mut socket, _) = listener.accept().await?;
+        let schema = schema.clone();
+
+        tokio::spawn(async move {
+            let mut buffer = vec![0; 1024];
+            loop {
+                let received_data = match socket.read(&mut buffer).await {
+                    Ok(inp) if inp == 0 => {
+                        return;
+                    }
+                    Ok(inp) => { inp }
+                    Err(_) => {
+                        return;
+                    }
+                };
+
+                let received_data = match String::from_utf8(buffer[..received_data].to_vec()) {
+                    Ok(string) => string,
+                    Err(e) => {
+                        eprintln!("Failed to transform received_data into string: {}", e);
+                        return;
+                    }
+                };
+
+                if received_data.trim() == "CLEAR DB" {
+                    clear_csv_files(&schema);
+                } else {
+                    execute_query(received_data, &schema);
+                }
+            }
+        });
     }
 }

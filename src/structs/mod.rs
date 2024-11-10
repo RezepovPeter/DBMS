@@ -6,7 +6,7 @@ pub struct Condition {
     pub value: String,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Schema {
     pub name: String,
     pub tuples_limit: i32,
