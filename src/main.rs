@@ -8,7 +8,7 @@ mod utils;
 use tokio::net::TcpListener;
 #[allow(unused_imports)]
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
-use structs::{ Schema, Condition };
+use structs::{ Schema, Condition, DbResponse };
 use db_api::{ execute_query, init_db, clear_csv_files };
 use vector::MyVec;
 use hash_map::MyHashMap;
@@ -59,7 +59,22 @@ async fn main() -> std::io::Result<()> {
                 if received_data.trim() == "CLEAR DB" {
                     clear_csv_files(&schema);
                 } else {
-                    execute_query(received_data, &schema);
+                    match execute_query(received_data, &schema) {
+                        DbResponse::Success(None) => {
+                            socket.write_all("SUCCES\n".as_bytes()).await.unwrap();
+                        }
+                        DbResponse::Error(error) => {
+                            socket.write_all(format!("{}\n", error).as_bytes()).await.unwrap();
+                        }
+                        DbResponse::Success(Some(matrix)) => {
+                            socket.write_all("SUCCES\n".as_bytes()).await.unwrap();
+                            for row in matrix.iter() {
+                                socket
+                                    .write_all(format!("{}, {}\n", row[0], row[1]).as_bytes()).await
+                                    .unwrap();
+                            }
+                        }
+                    };
                 }
             }
         });

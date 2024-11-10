@@ -12,3 +12,8 @@ pub struct Schema {
     pub tuples_limit: i32,
     pub structure: HashMap<String, Vec<String>>,
 }
+
+pub enum DbResponse {
+    Success(Option<Vec<Vec<String>>>),
+    Error(String),
+}

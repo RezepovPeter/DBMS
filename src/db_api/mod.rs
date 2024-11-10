@@ -2,18 +2,19 @@ use std::io::{ Read, Write };
 use std::fs::OpenOptions;
 use std::path::Path;
 use crate::querry_parser::{ parse_insert, parse_delete, parse_select };
+use crate::structs::DbResponse;
 use crate::Schema;
 use std::fs;
 
-pub fn execute_query(query: String, schema: &Schema) {
+pub fn execute_query(query: String, schema: &Schema) -> DbResponse {
     if query.starts_with("INSERT INTO") {
-        parse_insert(query, &schema);
+        parse_insert(query, &schema)
     } else if query.starts_with("DELETE FROM") {
-        parse_delete(query, &schema);
+        parse_delete(query, &schema)
     } else if query.starts_with("SELECT") {
-        parse_select(query, &schema);
+        parse_select(query, &schema)
     } else {
-        println!("Bad query");
+        DbResponse::Error("Bad query".to_string())
     }
 }
 

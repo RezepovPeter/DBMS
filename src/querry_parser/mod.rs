@@ -1,4 +1,4 @@
-use crate::{ Schema, Condition };
+use crate::{ Schema, Condition, DbResponse };
 use crate::{ MyVec, MyHashMap };
 use crate::db_api::{ lock_table, unlock_table, increment_pk_sequence, is_locked };
 use crate::utils::{ cartesian_product, read_all_table_data, find_not_full_csv };
@@ -6,7 +6,7 @@ use std::fs::OpenOptions;
 use std::io::{ BufRead, Write, BufReader };
 
 //Execute Functions
-fn execute_insert(table: &str, values_list: MyVec<&str>, schema: &Schema) {
+fn execute_insert(table: &str, values_list: MyVec<&str>, schema: &Schema) -> DbResponse {
     if !is_locked(table, schema) {
         lock_table(table, schema);
 
@@ -30,10 +30,17 @@ fn execute_insert(table: &str, values_list: MyVec<&str>, schema: &Schema) {
             writeln!(not_full_csv, "{}", cleaned_value).expect("failed to write data to CSV");
         }
         unlock_table(table, schema);
+        return DbResponse::Success(None);
+    } else {
+        return DbResponse::Error("Table is currently locked".to_string());
     }
 }
 
-fn execute_delete(table: &str, parsed_conditions: MyVec<MyVec<Condition>>, schema: &Schema) {
+fn execute_delete(
+    table: &str,
+    parsed_conditions: MyVec<MyVec<Condition>>,
+    schema: &Schema
+) -> DbResponse {
     if !is_locked(table, schema) {
         if let Some(head) = schema.structure.get(table) {
             let mut file_index = 0;
@@ -78,9 +85,12 @@ fn execute_delete(table: &str, parsed_conditions: MyVec<MyVec<Condition>>, schem
                 }
             }
             unlock_table(table, schema);
+            return DbResponse::Success(None);
         } else {
-            println!("No such table in DB");
+            return DbResponse::Error("No such table in DB".to_string());
         }
+    } else {
+        return DbResponse::Error("Table is currently locked".to_string());
     }
 }
 
@@ -89,13 +99,14 @@ fn execute_select(
     columns: MyVec<&str>,
     conditions: Option<MyVec<MyVec<Condition>>>,
     schema: &Schema
-) {
+) -> DbResponse {
     if !is_locked(tables[0], schema) && !is_locked(tables[1], schema) {
         let mut table_columns: MyHashMap<String, MyVec<String>> = MyHashMap::new();
 
         for table in tables.iter() {
             table_columns.insert(table.to_string(), MyVec::new());
         }
+
         for column in columns.iter() {
             if let Some((table, column_name)) = column.split_once(".") {
                 if let Some(columns_vector) = table_columns.get_mut(&table.to_string()) {
@@ -125,23 +136,29 @@ fn execute_select(
                 .iter()
                 .cloned()
                 .filter(|row| execute_conditions(&conds, row))
-                .collect()
+                .collect::<MyVec<_>>()
         } else {
             joined_data
         };
 
+        let mut result_matrix = Vec::new();
+
         for row in filtered_data.iter() {
-            let mut selected_row = MyVec::new();
+            let mut selected_row = Vec::new();
             for (table, cols) in table_columns.iter() {
                 for col in cols.iter() {
                     let key = format!("{}.{}", table, col);
                     if let Some(value) = row.get(&key) {
-                        selected_row.push(value.as_str());
+                        selected_row.push(value.clone());
                     }
                 }
             }
-            println!("{}", selected_row.join(", "));
+            result_matrix.push(selected_row);
         }
+
+        return DbResponse::Success(Some(result_matrix));
+    } else {
+        return DbResponse::Error("One or more tables are currently locked".to_string());
     }
 }
 
@@ -170,7 +187,7 @@ fn execute_conditions(
 }
 
 //Parser functions
-pub fn parse_insert(input: String, schema: &Schema) {
+pub fn parse_insert(input: String, schema: &Schema) -> DbResponse {
     let parts: MyVec<&str> = input.split_whitespace().collect();
     let table = parts[2];
 
@@ -178,24 +195,24 @@ pub fn parse_insert(input: String, schema: &Schema) {
         let values_part = &parts[values_index + 1..].join(" ");
         let values = values_part.trim_start_matches('(').trim_end_matches(')').trim();
         let values_list: MyVec<&str> = values.split("), (").collect();
-        execute_insert(table, values_list, schema);
+        return execute_insert(table, values_list, schema);
     } else {
-        println!("'VALUES' not found");
+        return DbResponse::Error("'VALUES' not found".to_string());
     }
 }
 
-pub fn parse_delete(query: String, schema: &Schema) {
+pub fn parse_delete(query: String, schema: &Schema) -> DbResponse {
     let parts: MyVec<&str> = query.split(" ").collect();
     let table = parts[2];
 
     if let Some(parsed_conditions) = parse_where(&query) {
-        execute_delete(table, parsed_conditions, schema);
+        return execute_delete(table, parsed_conditions, schema);
     } else {
-        println!("No WHERE clause found");
+        return DbResponse::Error("No WHERE clause found".to_string());
     }
 }
 
-pub fn parse_select(query: String, schema: &Schema) {
+pub fn parse_select(query: String, schema: &Schema) -> DbResponse {
     let parts: MyVec<&str> = query.split(" ").collect();
     let parsed_conditions = parse_where(&query);
     let select_index = parts
@@ -224,7 +241,7 @@ pub fn parse_select(query: String, schema: &Schema) {
         .map(|table| table.trim())
         .collect();
 
-    execute_select(tables, columns, parsed_conditions, schema);
+    return execute_select(tables, columns, parsed_conditions, schema);
 }
 
 fn parse_where(querry: &String) -> Option<MyVec<MyVec<Condition>>> {
