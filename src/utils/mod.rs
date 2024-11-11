@@ -1,7 +1,9 @@
 use crate::Schema;
 use crate::{ MyVec, MyHashMap };
 use std::fs;
+use fs::OpenOptions;
 use std::io::{ BufReader, BufRead, Write };
+use std::sync::{ Arc, Mutex };
 
 pub fn read_schema(path: &str) -> serde_json::Result<Schema> {
     let file = fs::File::open(path).expect("cannot open schema.json file");
@@ -29,7 +31,10 @@ pub fn cartesian_product(
     return result;
 }
 
-pub fn read_all_table_data(table_name: &str, schema: &Schema) -> MyVec<MyHashMap<String, String>> {
+pub fn read_all_table_data(
+    table_name: &str,
+    schema: &Schema
+) -> Result<MyVec<MyHashMap<String, String>>, String> {
     let mut all_data = MyVec::new();
     let mut file_index = 1;
 
@@ -38,9 +43,22 @@ pub fn read_all_table_data(table_name: &str, schema: &Schema) -> MyVec<MyHashMap
         let file_path = format!("{}/{}/{}.csv", schema.name, table_name, file_index);
 
         // Try to open the file
-        match fs::File::open(&file_path) {
+        let file_result = OpenOptions::new().read(true).open(&file_path);
+
+        match file_result {
             Ok(file) => {
-                let reader = BufReader::new(file);
+                let file_mutex = Arc::new(Mutex::new(file));
+
+                // Блокируем файл для чтения
+                let file_lock = match file_mutex.lock() {
+                    Ok(locked_file) => locked_file,
+                    Err(_) => {
+                        return Err(format!("Failed to lock file: {}", file_path));
+                    }
+                };
+
+                // Если файл успешно заблокирован, выполняем чтение
+                let reader = BufReader::new(&*file_lock);
                 let mut lines = reader.lines();
 
                 // Read the header
@@ -67,9 +85,8 @@ pub fn read_all_table_data(table_name: &str, schema: &Schema) -> MyVec<MyHashMap
         }
     }
 
-    all_data
+    Ok(all_data)
 }
-
 pub fn find_not_full_csv(schema: &Schema, table: &str) -> i32 {
     let mut not_full_csv_index = 0;
 

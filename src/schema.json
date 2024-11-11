@@ -2,7 +2,7 @@
   "name": "SchoolDB",
   "tuples_limit": 100,
   "structure": {
-    "Students": ["StudentID", "Name", "Surname"],
-    "Courses": ["CourseID", "CourseName"]
+    "Students": ["id", "StudentID", "Name", "Surname"],
+    "Courses": ["id", "CourseID", "CourseName"]
   }
 }

@@ -1,39 +1,44 @@
 use crate::{ Schema, Condition, DbResponse };
 use crate::{ MyVec, MyHashMap };
-use crate::db_api::{ lock_table, unlock_table, increment_pk_sequence, is_locked };
+use crate::db_api::{ /*lock_table, unlock_table, is_locked,*/ increment_pk_sequence };
 use crate::utils::{ cartesian_product, read_all_table_data, find_not_full_csv };
 use std::fs::OpenOptions;
 use std::io::{ BufRead, Write, BufReader };
+use std::sync::{ Mutex, Arc };
 
 //Execute Functions
 fn execute_insert(table: &str, values_list: MyVec<&str>, schema: &Schema) -> DbResponse {
-    if !is_locked(table, schema) {
-        lock_table(table, schema);
+    for value in values_list.iter() {
+        let cleaned_value = value
+            .replace("'", "")
+            .replace("(", "")
+            .replace(")", "")
+            .replace(" ", "");
 
-        for value in values_list.iter() {
-            let cleaned_value = value
-                .replace("'", "")
-                .replace("(", "")
-                .replace(")", "")
-                .replace(" ", "");
+        let not_full_csv_index = find_not_full_csv(schema, table);
+        let path = format!("{}/{}/{}.csv", schema.name, table, not_full_csv_index);
 
-            let not_full_csv_index = find_not_full_csv(schema, table);
-            let path = format!("{}/{}/{}.csv", schema.name, table, not_full_csv_index);
-
-            let mut not_full_csv = OpenOptions::new()
-                .write(true)
-                .append(true)
-                .open(&path)
-                .expect("failed to open CSV file for writing");
-
-            increment_pk_sequence(schema.name.as_str(), table);
-            writeln!(not_full_csv, "{}", cleaned_value).expect("failed to write data to CSV");
-        }
-        unlock_table(table, schema);
-        return DbResponse::Success(None);
-    } else {
-        return DbResponse::Error("Table is currently locked".to_string());
+        let not_full_csv_mutex = Arc::new(
+            Mutex::new(
+                OpenOptions::new()
+                    .write(true)
+                    .append(true)
+                    .open(&path)
+                    .expect("failed to open CSV file for writing")
+            )
+        );
+        let mut not_full_csv = match not_full_csv_mutex.lock() {
+            Ok(m) => m,
+            Err(_) => {
+                return DbResponse::Error("Table is currently locked".to_string());
+            }
+        };
+        let id = increment_pk_sequence(schema.name.as_str(), table);
+        writeln!(not_full_csv, "{}", format!("{},{}", id, cleaned_value)).expect(
+            "failed to write data to CSV"
+        );
     }
+    return DbResponse::Success(None);
 }
 
 fn execute_delete(
@@ -41,56 +46,74 @@ fn execute_delete(
     parsed_conditions: MyVec<MyVec<Condition>>,
     schema: &Schema
 ) -> DbResponse {
-    if !is_locked(table, schema) {
-        if let Some(head) = schema.structure.get(table) {
-            let mut file_index = 0;
-            lock_table(table, schema);
-            loop {
-                file_index += 1;
-                let mut remaining_lines: MyVec<String> = MyVec::new();
-                remaining_lines.push(head.join(",")); // Add header to remaining lines
-                let path = format!("{}/{}/{}.csv", schema.name, table, file_index);
-                let mut table_file = match OpenOptions::new().read(true).open(&path) {
-                    Ok(file) => file,
-                    Err(_) => {
-                        break;
-                    } // Break the loop if the file is not found
-                };
-                let reader = BufReader::new(table_file);
-                let mut lines = reader.lines();
-                lines.next();
-                for line in lines {
-                    let line = line.unwrap();
-                    let line: MyVec<&str> = line.split(",").collect();
-                    let mut data_for_condition: MyHashMap<String, String> = MyHashMap::new();
-                    for (field, value) in head.iter().zip(line.iter()) {
-                        data_for_condition.insert(
-                            format!("{}.{}", table, field),
-                            value.to_string()
-                        );
-                    }
-                    if !execute_conditions(&parsed_conditions, &data_for_condition) {
-                        remaining_lines.push(line.join(",")); // Save the line if it is not deleted
-                    }
-                }
-                table_file = OpenOptions::new()
-                    .write(true)
-                    .truncate(true) // Clear the file
-                    .open(&path)
-                    .expect("Failed to open file for truncation");
+    if let Some(head) = schema.structure.get(table) {
+        let mut file_index = 0;
 
-                // Write remaining lines
-                for line in remaining_lines.iter() {
-                    writeln!(table_file, "{}", line).expect("Failed to write line");
+        loop {
+            file_index += 1;
+            let mut remaining_lines: MyVec<String> = MyVec::new();
+            remaining_lines.push(head.join(",")); // Добавляем заголовок в оставшиеся строки
+
+            let path = format!("{}/{}/{}.csv", schema.name, table, file_index);
+            let file_result = OpenOptions::new().read(true).open(&path);
+
+            // Если файл не найден, выходим из цикла
+            let file = match file_result {
+                Ok(file) => file,
+                Err(_) => {
+                    break;
+                }
+            };
+
+            // Сохраняем результат Mutex в переменную
+            let file_mutex = Mutex::new(file);
+
+            // Блокируем файл для чтения
+            let table_file = match file_mutex.lock() {
+                Ok(m) => m,
+                Err(_) => {
+                    return DbResponse::Error("Table is currently locked".to_string());
+                }
+            };
+
+            // Передаем файл в BufReader, используя deref() для доступа к файлу
+            let reader = BufReader::new(&*table_file);
+            let mut lines = reader.lines();
+            lines.next(); // Пропускаем заголовок
+
+            // Обрабатываем каждую строку
+            for line in lines {
+                let line = line.unwrap();
+                let line: MyVec<&str> = line.split(",").collect();
+                let mut data_for_condition: MyHashMap<String, String> = MyHashMap::new();
+
+                for (field, value) in head.iter().zip(line.iter()) {
+                    data_for_condition.insert(format!("{}.{}", table, field), value.to_string());
+                }
+
+                // Если строка не подлежит удалению, добавляем её в оставшиеся строки
+                if !execute_conditions(&parsed_conditions, &data_for_condition) {
+                    remaining_lines.push(line.join(","));
                 }
             }
-            unlock_table(table, schema);
-            return DbResponse::Success(None);
-        } else {
-            return DbResponse::Error("No such table in DB".to_string());
+
+            // Открываем файл для записи, очищаем его
+            let mut table_file = match OpenOptions::new().write(true).truncate(true).open(&path) {
+                Ok(file) => file,
+                Err(_) => {
+                    return DbResponse::Error("Failed to open file for writing".to_string());
+                }
+            };
+
+            // Записываем оставшиеся строки обратно в файл
+            for line in remaining_lines.iter() {
+                writeln!(table_file, "{}", line).expect("Failed to write line");
+            }
         }
+
+        DbResponse::Success(None)
     } else {
-        return DbResponse::Error("Table is currently locked".to_string());
+        DbResponse::Error("No such table in DB".to_string())
     }
 }
 
@@ -100,66 +123,67 @@ fn execute_select(
     conditions: Option<MyVec<MyVec<Condition>>>,
     schema: &Schema
 ) -> DbResponse {
-    if !is_locked(tables[0], schema) && !is_locked(tables[1], schema) {
-        let mut table_columns: MyHashMap<String, MyVec<String>> = MyHashMap::new();
+    let mut table_columns: MyHashMap<String, MyVec<String>> = MyHashMap::new();
 
-        for table in tables.iter() {
-            table_columns.insert(table.to_string(), MyVec::new());
-        }
-
-        for column in columns.iter() {
-            if let Some((table, column_name)) = column.split_once(".") {
-                if let Some(columns_vector) = table_columns.get_mut(&table.to_string()) {
-                    columns_vector.push(column_name.to_string());
-                }
-            }
-        }
-
-        let tables: MyVec<String> = tables
-            .iter()
-            .map(|&s| s.to_string())
-            .collect();
-        let mut table_data: MyVec<MyVec<MyHashMap<String, String>>> = MyVec::new();
-
-        for table in tables.iter() {
-            let data = read_all_table_data(table, schema);
-            table_data.push(data);
-        }
-
-        let mut joined_data = table_data[0].clone();
-        for i in 1..table_data.len() {
-            joined_data = cartesian_product(&joined_data, &table_data[i]);
-        }
-
-        let filtered_data = if let Some(conds) = conditions {
-            joined_data
-                .iter()
-                .cloned()
-                .filter(|row| execute_conditions(&conds, row))
-                .collect::<MyVec<_>>()
-        } else {
-            joined_data
-        };
-
-        let mut result_matrix = Vec::new();
-
-        for row in filtered_data.iter() {
-            let mut selected_row = Vec::new();
-            for (table, cols) in table_columns.iter() {
-                for col in cols.iter() {
-                    let key = format!("{}.{}", table, col);
-                    if let Some(value) = row.get(&key) {
-                        selected_row.push(value.clone());
-                    }
-                }
-            }
-            result_matrix.push(selected_row);
-        }
-
-        return DbResponse::Success(Some(result_matrix));
-    } else {
-        return DbResponse::Error("One or more tables are currently locked".to_string());
+    for table in tables.iter() {
+        table_columns.insert(table.to_string(), MyVec::new());
     }
+
+    for column in columns.iter() {
+        if let Some((table, column_name)) = column.split_once(".") {
+            if let Some(columns_vector) = table_columns.get_mut(&table.to_string()) {
+                columns_vector.push(column_name.to_string());
+            }
+        }
+    }
+
+    let tables: MyVec<String> = tables
+        .iter()
+        .map(|&s| s.to_string())
+        .collect();
+    let mut table_data: MyVec<MyVec<MyHashMap<String, String>>> = MyVec::new();
+
+    for table in tables.iter() {
+        let data = match read_all_table_data(table, schema) {
+            Ok(d) => d,
+            Err(_) => {
+                return DbResponse::Error("One or more tables are currently locked".to_string());
+            }
+        };
+        table_data.push(data);
+    }
+
+    let mut joined_data = table_data[0].clone();
+    for i in 1..table_data.len() {
+        joined_data = cartesian_product(&joined_data, &table_data[i]);
+    }
+
+    let filtered_data = if let Some(conds) = conditions {
+        joined_data
+            .iter()
+            .cloned()
+            .filter(|row| execute_conditions(&conds, row))
+            .collect::<MyVec<_>>()
+    } else {
+        joined_data
+    };
+
+    let mut result_matrix = Vec::new();
+
+    for row in filtered_data.iter() {
+        let mut selected_row = Vec::new();
+        for (table, cols) in table_columns.iter() {
+            for col in cols.iter() {
+                let key = format!("{}.{}", table, col);
+                if let Some(value) = row.get(&key) {
+                    selected_row.push(value.clone());
+                }
+            }
+        }
+        result_matrix.push(selected_row);
+    }
+
+    return DbResponse::Success(Some(result_matrix));
 }
 
 fn execute_conditions(

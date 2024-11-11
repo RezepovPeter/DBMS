@@ -81,29 +81,29 @@ pub fn clear_csv_files(schema: &Schema) {
     }
 }
 
-pub fn is_locked(table_name: &str, schema: &Schema) -> bool {
-    let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
-    if let Ok(mut file) = fs::File::open(&lock_path) {
-        let mut content = String::new();
-        file.read_to_string(&mut content).expect("Failed to read lock file");
-        return content.trim() == "1";
-    }
-    false
-}
+// pub fn is_locked(table_name: &str, schema: &Schema) -> bool {
+//     let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
+//     if let Ok(mut file) = fs::File::open(&lock_path) {
+//         let mut content = String::new();
+//         file.read_to_string(&mut content).expect("Failed to read lock file");
+//         return content.trim() == "1";
+//     }
+//     false
+// }
 
-pub fn lock_table(table_name: &str, schema: &Schema) {
-    let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
-    let mut file = fs::File::create(&lock_path).expect("failed to create lock file");
-    writeln!(file, "1").expect("Failed to write to lock file");
-}
+// pub fn lock_table(table_name: &str, schema: &Schema) {
+//     let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
+//     let mut file = fs::File::create(&lock_path).expect("failed to create lock file");
+//     writeln!(file, "1").expect("Failed to write to lock file");
+// }
 
-pub fn unlock_table(table_name: &str, schema: &Schema) {
-    let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
-    let mut file = fs::File::create(&lock_path).expect("failed to create lock file");
-    writeln!(file, "0").expect("Failed to write to lock file");
-}
+// pub fn unlock_table(table_name: &str, schema: &Schema) {
+//     let lock_path = format!("{}/{}/{}_lock", schema.name, table_name, table_name);
+//     let mut file = fs::File::create(&lock_path).expect("failed to create lock file");
+//     writeln!(file, "0").expect("Failed to write to lock file");
+// }
 
-pub fn increment_pk_sequence(schema_name: &str, table_name: &str) {
+pub fn increment_pk_sequence(schema_name: &str, table_name: &str) -> i32 {
     let sequence_path = format!("{}/{}/{}_pk_sequence", schema_name, table_name, table_name);
     let sequence = Path::new(&sequence_path);
 
@@ -124,8 +124,10 @@ pub fn increment_pk_sequence(schema_name: &str, table_name: &str) {
             .open(&sequence)
             .expect("Failed to open pk_sequence file for writing");
         writeln!(file, "{}", new_value).expect("Failed to write new pk_sequence value to file");
+        new_value as i32
     } else {
         let mut file = fs::File::create(&sequence).expect("Failed to create pk_sequence file");
         writeln!(file, "1").expect("Failed to write to new pk_sequence file");
+        1_i32
     }
 }
