@@ -87,31 +87,40 @@ pub fn read_all_table_data(
 
     Ok(all_data)
 }
-pub fn find_not_full_csv(schema: &Schema, table: &str) -> i32 {
+
+pub fn find_not_full_csv(schema: &Schema, table: &str) -> Result<i32, String> {
     let mut not_full_csv_index = 0;
+    let file_mutex = Arc::new(Mutex::new(()));
 
     loop {
         not_full_csv_index += 1;
         let path = format!("{}/{}/{}.csv", schema.name, table, not_full_csv_index);
 
+        // Блокируем доступ к файлу с помощью Mutex
+        let _lock = match file_mutex.lock() {
+            Ok(m) => m,
+            Err(_) => {
+                return Err("Table is blocked".to_string());
+            }
+        }; // Блокировка синхронизирована
+
         // Try to open the file
-        match fs::File::open(&path) {
+        match OpenOptions::new().read(true).open(&path) {
             Ok(file) => {
                 // If the file is open, check the number of lines
-                let reader = BufReader::new(&file);
+                let reader = BufReader::new(file);
                 if reader.lines().count() - 1 < (schema.tuples_limit as usize) {
                     // If the file is not full, return it
-                    return not_full_csv_index;
+                    return Ok(not_full_csv_index);
                 }
                 // If the file is full, continue searching
             }
-            #[allow(unused_variables)]
-            Err(e) => {
+            Err(_) => {
                 // If the file does not exist, create a new one
                 let mut file = fs::File::create(&path).expect("failed to create new csv file");
                 let columns = schema.structure.get(table).unwrap().join(",");
                 writeln!(file, "{}", columns).unwrap();
-                return not_full_csv_index;
+                return Ok(not_full_csv_index);
             }
         }
     }

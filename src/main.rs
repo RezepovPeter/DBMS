@@ -5,6 +5,9 @@ mod db_api;
 mod structs;
 mod utils;
 
+#[cfg(test)]
+mod tests;
+
 use tokio::net::TcpListener;
 #[allow(unused_imports)]
 use tokio::io::{ AsyncReadExt, AsyncWriteExt };
@@ -78,43 +81,5 @@ async fn main() -> std::io::Result<()> {
                 }
             }
         });
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate::{ Schema, DbResponse };
-    use crate::{ init_db, read_schema, execute_query };
-
-    #[tokio::test]
-    async fn test_lock_db() {
-        let schema: Schema;
-        match read_schema("src/schema.json") {
-            Ok(output) => {
-                schema = output;
-            }
-            Err(e) => {
-                println!("Failed to read schema: {}", e);
-                std::process::exit(1);
-            }
-        }
-        init_db(&schema);
-
-        let query = String::from("INSERT INTO Students VALUES ('1', 'aboba', 'ded')");
-
-        for _ in 0..15 {
-            let query_clone = query.clone();
-            let schema_clone = schema.clone();
-
-            let task = tokio::spawn(async move {
-                match execute_query(query_clone, &schema_clone) {
-                    DbResponse::Success(_) => {}
-                    DbResponse::Error(e) => {
-                        panic!("error: {}", e);
-                    }
-                }
-            });
-            task.await.unwrap();
-        }
     }
 }

@@ -15,7 +15,12 @@ fn execute_insert(table: &str, values_list: MyVec<&str>, schema: &Schema) -> DbR
             .replace(")", "")
             .replace(" ", "");
 
-        let not_full_csv_index = find_not_full_csv(schema, table);
+        let not_full_csv_index = match find_not_full_csv(schema, table) {
+            Ok(i) => i,
+            Err(e) => {
+                return DbResponse::Error(e);
+            }
+        };
         let path = format!("{}/{}/{}.csv", schema.name, table, not_full_csv_index);
 
         let not_full_csv_mutex = Arc::new(
@@ -146,8 +151,8 @@ fn execute_select(
     for table in tables.iter() {
         let data = match read_all_table_data(table, schema) {
             Ok(d) => d,
-            Err(_) => {
-                return DbResponse::Error("One or more tables are currently locked".to_string());
+            Err(e) => {
+                return DbResponse::Error(e);
             }
         };
         table_data.push(data);

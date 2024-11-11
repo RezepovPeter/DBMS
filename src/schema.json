@@ -1,6 +1,6 @@
 {
   "name": "SchoolDB",
-  "tuples_limit": 100,
+  "tuples_limit": 1000,
   "structure": {
     "Students": ["id", "StudentID", "Name", "Surname"],
     "Courses": ["id", "CourseID", "CourseName"]
