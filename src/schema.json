@@ -1,8 +1,11 @@
 {
-  "name": "SchoolDB",
+  "name": "TradeDB",
   "tuples_limit": 1000,
   "structure": {
-    "Students": ["id", "StudentID", "Name", "Surname"],
-    "Courses": ["id", "CourseID", "CourseName"]
+    "users": ["user_id", "username", "auth_key"],
+    "lot": ["lot_id", "name"],
+    "pair": ["pair_id", "sale_lot_id", "buy_lot_id"],
+    "orders": ["order_id", "user_id", "pair_id", "quantity", "price", "order_type", "closed"],
+    "user_lot": ["id", "user_id", "lot_id", "quantity"]
   }
 }

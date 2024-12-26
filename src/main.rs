@@ -32,7 +32,7 @@ async fn main() -> std::io::Result<()> {
 
     init_db(&schema);
 
-    let listener = TcpListener::bind("127.0.0.1:1337").await?;
+    let listener = TcpListener::bind("0.0.0.0:1337").await?;
 
     loop {
         let (mut socket, _) = listener.accept().await?;
@@ -65,17 +65,25 @@ async fn main() -> std::io::Result<()> {
                     match execute_query(received_data, &schema) {
                         DbResponse::Success(None) => {
                             socket.write_all("SUCCES\n".as_bytes()).await.unwrap();
+                            socket.write_all("END\n".as_bytes()).await.unwrap();
                         }
                         DbResponse::Error(error) => {
                             socket.write_all(format!("{}\n", error).as_bytes()).await.unwrap();
+                            socket.write_all("END\n".as_bytes()).await.unwrap();
                         }
                         DbResponse::Success(Some(matrix)) => {
                             socket.write_all("SUCCES\n".as_bytes()).await.unwrap();
                             for row in matrix.iter() {
+                                let row_str = row
+                                    .iter()
+                                    .map(|x| x.to_string())
+                                    .collect::<Vec<String>>()
+                                    .join(" ");
                                 socket
-                                    .write_all(format!("{}, {}\n", row[0], row[1]).as_bytes()).await
+                                    .write_all(format!("{}\n", row_str).as_bytes()).await
                                     .unwrap();
                             }
+                            socket.write_all("END\n".as_bytes()).await.unwrap();
                         }
                     };
                 }
